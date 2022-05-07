@@ -11,6 +11,8 @@ import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.FieldInsnNode;
+import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.LdcInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
@@ -50,7 +52,7 @@ public class Agent {
                     }
                 }
 
-                if (className.startsWith("net/minecraft")) {
+                if (className.equals("net/optifine/Config")) {
                     ClassReader cr = new ClassReader(classfileBuffer);
 
                     if (cr.getInterfaces().length == 0 && "java/lang/Object".equals(cr.getSuperName())) {
@@ -58,26 +60,42 @@ public class Agent {
 
                         cr.accept(cn, 0);
 
+                        boolean found = false;
                         for (MethodNode method : cn.methods) {
+                            if (method.name.equals("checkDisplaySettings")) {
+                                found = true;
+                                cn.fields.add(
+                                        new FieldNode(Opcodes.ACC_PUBLIC + Opcodes.ACC_STATIC + Opcodes.ACC_VOLATILE,
+                                                "isDisplayCreated", "Z", null, true));
 
-                            boolean hasString = Arrays.stream(method.instructions.toArray())
-                                    .filter(LdcInsnNode.class::isInstance)
-                                    .map(LdcInsnNode.class::cast)
-                                    .map(inst -> inst.cst)
-                                    .anyMatch("VboRegions not supported, missing: "::equals);
-                            if (hasString) {
+                                for (AbstractInsnNode insn : method.instructions) {
+                                    if (insn.getOpcode() == Opcodes.IFLE) {
+                                        method.instructions.insert(insn, new FieldInsnNode(Opcodes.PUTSTATIC,
+                                                "net/optifine/Config", "isDisplayCreated", "Z"));
+                                        method.instructions.insert(insn, new InsnNode(Opcodes.ICONST_1));
+                                    }
+                                }
+                            }
+                            if (method.name.equals("initDisplay")) {
                                 for (AbstractInsnNode insn : method.instructions) {
                                     if (insn.getOpcode() == Opcodes.INVOKESTATIC
-                                            && ((MethodInsnNode) insn).name.equals("initDisplay")) {
+                                            && ((MethodInsnNode) insn).name.equals("checkDisplaySettings")) {
                                         method.instructions.remove(insn);
-                                        ClassWriter cw = new ClassWriter(cr, 0);
-                                        cn.accept(cw);
-                                        return cw.toByteArray();
                                     }
                                 }
                             }
                         }
+                        if (found) {
+                            ClassWriter cw = new ClassWriter(cr, 0);
+                            cn.accept(cw);
+                            return cw.toByteArray();
+                        }
+
                     }
+                }
+
+                if (className.startsWith("net/minecraft")) {
+                    ClassReader cr = new ClassReader(classfileBuffer);
 
                     if (cr.getInterfaces().length == 3 && "java/lang/Object".equals(cr.getSuperName())) {
                         ClassNode cn = new ClassNode();
@@ -92,14 +110,22 @@ public class Agent {
                                     .anyMatch("Couldn't set pixel format"::equals);
 
                             if (hasString) {
-                                method.instructions.clear();
-                                method.localVariables.clear();
-                                method.exceptions.clear();
-                                method.tryCatchBlocks.clear();
-                                method.instructions.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "net/optifine/Config",
-                                        "initDisplay", "()V"));
-                                method.instructions.add(new InsnNode(Opcodes.RETURN));
-                                ClassWriter cw = new ClassWriter(cr, 0);
+                                method.instructions
+                                        .insert(new MethodInsnNode(Opcodes.INVOKESTATIC, "net/optifine/Config",
+                                                "checkDisplaySettings", "()V"));
+                                for (MethodNode methoda : cn.methods) {
+                                    if (methoda.name.endsWith("onCreateDisplay")) {
+                                        for (AbstractInsnNode insn : methoda.instructions) {
+                                            if (insn.getOpcode() == Opcodes.BIPUSH) {
+                                                methoda.instructions.insertBefore(insn,
+                                                        new FieldInsnNode(Opcodes.GETSTATIC, "net/optifine/Config",
+                                                                "isDisplayCreated", "Z"));
+                                                methoda.instructions.insert(insn, new InsnNode(Opcodes.IMUL));
+                                            }
+                                        }
+                                    }
+                                }
+                                ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_MAXS);
                                 cn.accept(cw);
                                 return cw.toByteArray();
                             }
