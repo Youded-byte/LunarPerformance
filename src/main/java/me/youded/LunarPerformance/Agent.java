@@ -19,7 +19,11 @@ import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 
 public class Agent {
+    private static volatile boolean displaypatch = true;
     public static void premain(String args, Instrumentation inst) {
+        if (args != null && !args.isEmpty() && args.equals("nodisplaypatch")){
+            displaypatch = false;
+        }
         inst.addTransformer(new ClassFileTransformer() {
             @Override
             public byte[] transform(ClassLoader loader, String className, Class<?> classBeingRedefined,
@@ -52,7 +56,7 @@ public class Agent {
                     }
                 }
 
-                if (className.equals("net/optifine/Config")) {
+                if (displaypatch && className.equals("net/optifine/Config")) {
                     ClassReader cr = new ClassReader(classfileBuffer);
 
                     if (cr.getInterfaces().length == 0 && "java/lang/Object".equals(cr.getSuperName())) {
@@ -94,7 +98,7 @@ public class Agent {
                     }
                 }
 
-                if (className.startsWith("net/minecraft")) {
+                if (displaypatch && className.startsWith("net/minecraft")) {
                     ClassReader cr = new ClassReader(classfileBuffer);
 
                     if (cr.getInterfaces().length == 3 && "java/lang/Object".equals(cr.getSuperName())) {
